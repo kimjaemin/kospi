@@ -1,0 +1,15 @@
+{
+  "name": "코스피 분석기",
+  "short_name": "코스피 분석기",
+  "description": "코스피 시가총액 상위 10 종목과 코스피 지수를 일별·월별·연도별로 봅니다.",
+  "lang": "ko",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f6f9",
+  "theme_color": "#1f3a8a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

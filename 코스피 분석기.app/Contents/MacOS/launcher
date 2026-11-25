@@ -1,0 +1,9 @@
+#!/bin/bash
+# 이 앱은 같은 폴더에 있는 프로그램(app.py, .venv)을 실행한다. 앱만 다른 곳으로 옮기면 동작하지 않는다.
+DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$DIR" || exit 1
+if [ ! -x .venv/bin/python ]; then
+  osascript -e 'display dialog "처음 실행 준비가 필요합니다. 같은 폴더의 run.command를 한 번 실행한 뒤 다시 열어 주세요." buttons {"확인"} default button 1 with title "코스피 분석기"'
+  exit 1
+fi
+exec .venv/bin/python gui.py >> "$DIR/gui.log" 2>&1

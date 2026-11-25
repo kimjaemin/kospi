@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>코스피 분석기</title>
+<meta name="description" content="코스피 시가총액 상위 10 종목과 코스피 지수를 일별·월별·연도별로 봅니다.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="코스피 분석기">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f5f6f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#11141b" media="(prefers-color-scheme: dark)">
+<style>
+/* 레이아웃: 한 손으로 보는 한 열 화면. 위에는 고정 머리(보기·기준 선택), 아래로 조건 → 요약 → 차트 → 표 */
+:root {
+  --bg: #f5f6f9; --surface: #ffffff; --line: #e1e4ec; --fg: #171b26; --muted: #666e80;
+  --accent: #1f3a8a; --accent-fg: #ffffff; --chip: #e9ecf3;
+  --up: #d23f37; --down: #2563c9; --series: #2a5bd7; --grid: #e6e9f0;
+  --font: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11141b; --surface: #1a1e28; --line: #2c3240; --fg: #eceef3; --muted: #99a1b3;
+    --accent: #8fa8ff; --accent-fg: #0f1320; --chip: #262b38;
+    --up: #ff6b61; --down: #6ea2ff; --series: #7fa3ff; --grid: #2a2f3c;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--font); font-variant-numeric: tabular-nums; }
+header { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line);
+  padding: calc(env(safe-area-inset-top, 0px) + 10px) max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); }
+.wrap { max-width: 760px; margin: 0 auto; }
+h1 { font-size: 17px; margin: 0 0 8px; letter-spacing: -0.01em; }
+main { padding: 14px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 32px) max(16px, env(safe-area-inset-left, 0px)); }
+main > .wrap { display: flex; flex-direction: column; gap: 14px; }
+.seg { display: flex; background: var(--chip); border-radius: 10px; padding: 3px; gap: 3px; }
+.seg + .seg { margin-top: 8px; }
+.seg button { flex: 1; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; padding: 7px 4px; border-radius: 8px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--fg); box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.controls label { color: var(--muted); font-size: 13px; }
+select, input[type="date"], .btn { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; min-height: 38px; }
+.btn { cursor: pointer; min-width: 38px; }
+.btn:disabled { opacity: .4; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chips button { border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; border-radius: 999px; padding: 5px 13px; cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.check { display: inline-flex; gap: 6px; align-items: center; color: var(--fg) !important; font-size: 14px !important; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 14px; min-width: 0; }
+h2 { font-size: 16px; margin: 0; text-wrap: balance; }
+.sub { color: var(--muted); font-size: 12.5px; margin: 2px 0 10px; }
+.note { color: var(--muted); font-size: 12.5px; }
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 14px; }
+@media (min-width: 560px) { .stats { grid-template-columns: repeat(4, 1fr); } }
+.stat .k { color: var(--muted); font-size: 12px; }
+.stat .v { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+.up { color: var(--up); } .down { color: var(--down); }
+/* 시총 순위 목록 */
+.rank { list-style: none; margin: 0; padding: 0; }
+.rank li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; column-gap: 10px; align-items: center; padding: 9px 0; border-top: 1px solid var(--line); }
+.rank li:first-child { border-top: 0; }
+.rank .n { color: var(--muted); font-weight: 700; text-align: right; }
+.rank .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank .code { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+.rank .bar { height: 5px; border-radius: 3px; background: var(--series); margin-top: 5px; min-width: 2px; }
+.rank .r { text-align: right; }
+.rank .cap { font-weight: 700; }
+.rank .px { font-size: 12px; color: var(--muted); }
+/* 표 */
+.scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: right; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+th:first-child, td:first-child { text-align: left; position: sticky; left: -14px; background: var(--surface); }
+table.matrix td, table.matrix th { text-align: left; }
+table.matrix td:first-child, table.matrix th:first-child { color: var(--muted); font-weight: 700; padding-left: 14px; }
+/* 차트 */
+.chart { position: relative; touch-action: pan-y; }
+.chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+.chart text { fill: var(--muted); font-size: 11px; font-family: var(--font); }
+.readout { min-height: 20px; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.readout b { color: var(--fg); }
+.msg { text-align: center; color: var(--muted); padding: 40px 0; }
+footer { color: var(--muted); font-size: 12px; text-align: center; padding-top: 6px; }
+@media (prefers-reduced-motion: no-preference) { .seg button, .chips button { transition: background .12s; } }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <h1>코스피 분석기</h1>
+  <div class="seg" id="seg-page" role="group" aria-label="보기">
+    <button data-v="top">시가총액 상위 10</button><button data-v="index">코스피 지수</button>
+  </div>
+  <div class="seg" id="seg-basis" role="group" aria-label="기준">
+    <button data-v="D">일별</button><button data-v="M">월별</button><button data-v="Y">연도별</button>
+  </div>
+</div></header>
+<main><div class="wrap" id="view"><p class="msg">데이터를 불러오는 중…</p></div></main>
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const num = (v, d = 0) => v.toLocaleString("ko-KR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const pct = v => (v > 0 ? "+" : "") + num(v, 2) + "%";
+const cls = v => (v > 0 ? "up" : v < 0 ? "down" : "");
+const dash = k => { k = String(k); return k.slice(0, 4) + "-" + k.slice(4, 6) + "-" + k.slice(6, 8); };
+const jo = eok => eok / 1e4; // 억원 → 조원
+
+const state = { page: "top", basis: "D", pref: false, day: null, year: null, month: null, range: "1Y", y0: null, y1: null };
+try { Object.assign(state, JSON.parse(localStorage.getItem("kospi-state") || "{}"), { day: null }); } catch (e) {}
+const save = () => { try { localStorage.setItem("kospi-state", JSON.stringify(state)); } catch (e) {} };
+
+const cache = {};
+const load = path => cache[path] || (cache[path] = fetch("data/" + path).then(r => { if (!r.ok) throw new Error(path); return r.json(); }));
+let META, IDX;
+
+/* ---------- 시가총액 ---------- */
+function rowsOf(file, key, exclPref) {
+  const a = file.days[key]; if (!a) return [];
+  const out = [];
+  for (let i = 0; i < a.length; i += 4) {
+    const [code, name] = file.stocks[a[i]];
+    if (exclPref && code.slice(-1) !== "0") continue; // 종목코드 끝자리가 0이 아니면 우선주
+    out.push({ code, name, cap: a[i + 1], close: a[i + 2], chg: a[i + 3] });
+    if (out.length === 10) break;
+  }
+  return out;
+}
+function rankCard(title, key, rows) {
+  const max = rows.length ? rows[0].cap : 1, sum = rows.reduce((s, r) => s + r.cap, 0);
+  return `<section class="card"><h2>${esc(title)}</h2>
+    <p class="sub">기준일 ${dash(key)} 종가 · 상위 10개 합계 ${num(jo(sum), 1)}조원</p>
+    <ol class="rank">${rows.map((r, i) => `<li><span class="n">${i + 1}</span>
+      <div><div class="name">${esc(r.name)}<span class="code">${r.code}</span></div><div class="bar" style="width:${(r.cap / max * 100).toFixed(1)}%"></div></div>
+      <div class="r"><div class="cap">${num(jo(r.cap), 1)}조</div><div class="px">${num(r.close)}원 <span class="${cls(r.chg)}">${pct(r.chg)}</span></div></div></li>`).join("")}</ol></section>`;
+}
+function matrixCard(title, note, cols) { // cols: [{label, rows}]
+  let h = `<section class="card"><h2>${esc(title)}</h2><p class="sub">${esc(note)}</p><div class="scroll"><table class="matrix"><thead><tr><th>순위</th>${cols.map(c => `<th>${esc(c.label)}</th>`).join("")}</tr></thead><tbody>`;
+  for (let i = 0; i < 10; i++) h += `<tr><td>${i + 1}</td>${cols.map(c => `<td>${c.rows[i] ? esc(c.rows[i].name) : ""}</td>`).join("")}</tr>`;
+  return h + "</tbody></table></div></section>";
+}
+const prefCheck = () => `<label class="check"><input type="checkbox" id="pref" ${state.pref ? "checked" : ""}> 우선주 제외</label>`;
+const bindPref = el => { $("#pref", el).onchange = e => { state.pref = e.target.checked; render(); }; };
+const opts = (list, sel, fmt = v => v) => list.map(v => `<option value="${v}" ${String(v) === String(sel) ? "selected" : ""}>${fmt(v)}</option>`).join("");
+
+async function viewTop(el) {
+  const first = META.topFirst, last = META.topLast;
+  const foot = `<footer>시가총액 ${dash(first)} ~ ${dash(last)} · 출처 한국거래소 전종목 시세(marcap 데이터셋)</footer>`;
+  if (state.basis === "D") {
+    let want = state.day || last; if (want > last) want = last; if (want < first) want = first;
+    const year = async y => (y >= +first.slice(0, 4) && y <= +last.slice(0, 4)) ? load(`top/${y}.json`) : null;
+    let y = +want.slice(0, 4), file = await year(y), keys = Object.keys(file.days), key = keys.filter(k => k <= want).pop();
+    if (!key) { file = await year(--y); keys = Object.keys(file.days); key = keys[keys.length - 1]; }
+    const i = keys.indexOf(key);
+    const step = async d => {
+      let k = keys[i + d];
+      if (!k) { const f = await year(y + d); if (f) { const ks = Object.keys(f.days); k = d > 0 ? ks[0] : ks[ks.length - 1]; } }
+      if (k) { state.day = k; render(); }
+    };
+    el.innerHTML = `<div class="controls"><button class="btn" id="prev" aria-label="이전 거래일">◀</button>
+      <input type="date" id="day" aria-label="날짜" value="${dash(key)}" min="${dash(first)}" max="${dash(last)}">
+      <button class="btn" id="next" aria-label="다음 거래일" ${key === last ? "disabled" : ""}>▶</button>${prefCheck()}</div>
+      ${key !== want ? `<p class="note">${dash(want)}은 휴장일이라 직전 거래일 기준으로 보여줍니다.</p>` : ""}
+      ${rankCard(`${+key.slice(0, 4)}년 ${+key.slice(4, 6)}월 ${+key.slice(6)}일 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}${foot}`;
+    $("#day", el).onchange = e => { if (e.target.value) { state.day = e.target.value.replace(/-/g, ""); render(); } };
+    $("#prev", el).onclick = () => step(-1); $("#next", el).onclick = () => step(1);
+  } else {
+    const file = await load("top/monthend.json"), keys = Object.keys(file.days);
+    const years = [...new Set(keys.map(k => +k.slice(0, 4)))].reverse();
+    if (!years.includes(+state.year)) state.year = years[0];
+    const inYear = keys.filter(k => +k.slice(0, 4) === +state.year);
+    if (state.basis === "M") {
+      const months = inYear.map(k => +k.slice(4, 6));
+      if (!months.includes(+state.month)) state.month = months[months.length - 1];
+      const key = inYear[months.indexOf(+state.month)];
+      el.innerHTML = `<div class="controls"><select id="year" aria-label="연도">${opts(years, state.year, v => v + "년")}</select>
+        <select id="month" aria-label="월">${opts(months, state.month, v => v + "월")}</select>${prefCheck()}</div>
+        ${rankCard(`${state.year}년 ${state.month}월 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}
+        ${matrixCard(`${state.year}년 월별 순위 변화`, "각 월의 마지막 거래일 기준입니다.", inYear.map(k => ({ label: +k.slice(4, 6) + "월", rows: rowsOf(file, k, state.pref) })))}${foot}`;
+      $("#month", el).onchange = e => { state.month = +e.target.value; render(); };
+    } else {
+      const ends = years.map(y => keys.filter(k => +k.slice(0, 4) === y).pop());
+      const key = inYear[inYear.length - 1];
+      el.innerHTML = `<div class="controls"><select id="year" aria-label="연도">${opts(years, state.year, v => v + "년")}</select>${prefCheck()}</div>
+        ${rankCard(`${state.year}년 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}
+        ${matrixCard("연도별 순위 변화", `각 연도의 마지막 거래일 기준입니다. ${last.slice(0, 4)}년은 ${dash(last)} 기준입니다. 옆으로 밀어 과거를 볼 수 있습니다.`, ends.map(k => ({ label: k.slice(0, 4), rows: rowsOf(file, k, state.pref) })))}${foot}`;
+    }
+    $("#year", el).onchange = e => { state.year = +e.target.value; state.month = null; render(); };
+  }
+  bindPref(el);
+}
+
+/* ---------- 코스피 지수 ---------- */
+function periods(basis) { // 일별 자료를 월·연 단위 시가/고가/저가/종가로 묶는다
+  const n = IDX.d.length, out = [];
+  const keyOf = d => basis === "D" ? d : basis === "M" ? Math.floor(d / 100) : Math.floor(d / 10000);
+  let cur = null;
+  for (let i = 0; i < n; i++) {
+    const k = keyOf(IDX.d[i]);
+    if (!cur || cur.k !== k) { cur = { k, d: IDX.d[i], o: IDX.o[i], h: IDX.h[i], l: IDX.l[i], c: IDX.c[i], prev: i ? IDX.c[i - 1] : null }; out.push(cur); }
+    else { cur.d = IDX.d[i]; cur.c = IDX.c[i]; if (IDX.h[i] > cur.h) cur.h = IDX.h[i]; if (IDX.l[i] < cur.l) cur.l = IDX.l[i]; }
+  }
+  for (const p of out) { p.chg = p.prev == null ? null : p.c - p.prev; p.pct = p.prev == null ? null : (p.c / p.prev - 1) * 100; }
+  return out;
+}
+const label = (p, basis) => basis === "D" ? dash(p.d) : basis === "M" ? String(p.d).slice(0, 4) + "-" + String(p.d).slice(4, 6) : String(p.d).slice(0, 4);
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || 1, raw = span / n, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw);
+  const t = []; for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) t.push(v); return t;
+}
+function lineChart(host, pts, basis) {
+  const W = Math.max(300, host.clientWidth), H = Math.round(Math.min(340, Math.max(220, W * 0.5)));
+  const m = { l: 6, r: 44, t: 8, b: 22 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  let lo = Infinity, hi = -Infinity; for (const p of pts) { if (p.c < lo) lo = p.c; if (p.c > hi) hi = p.c; }
+  const pad = (hi - lo) * 0.06 || 1; lo -= pad; hi += pad;
+  const x = i => m.l + (pts.length > 1 ? i / (pts.length - 1) : 0.5) * iw, y = v => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+  const stride = Math.max(1, Math.floor(pts.length / 900));
+  let path = ""; for (let i = 0; i < pts.length; i += stride) path += (path ? "L" : "M") + x(i).toFixed(1) + " " + y(pts[i].c).toFixed(1);
+  if ((pts.length - 1) % stride) path += "L" + x(pts.length - 1).toFixed(1) + " " + y(pts[pts.length - 1].c).toFixed(1);
+  const grid = niceTicks(lo, hi, 4).map(v => `<line x1="${m.l}" x2="${m.l + iw}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${W - m.r + 6}" y="${y(v) + 4}">${num(v)}</text>`).join("");
+  const nx = Math.min(pts.length, W < 480 ? 4 : 6), xt = [];
+  for (let j = 0; j < nx; j++) { const i = Math.round(j * (pts.length - 1) / Math.max(1, nx - 1)); xt.push(`<text x="${x(i)}" y="${H - 5}" text-anchor="${j === 0 ? "start" : j === nx - 1 ? "end" : "middle"}">${label(pts[i], basis)}</text>`); }
+  host.innerHTML = `<div class="readout" id="ro"></div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="코스피 지수 종가 꺾은선 차트">${grid}${xt.join("")}
+    <path d="${path}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <g id="cur" hidden><line id="cl" y1="${m.t}" y2="${m.t + ih}" stroke="var(--muted)" stroke-dasharray="3 3"/><circle id="cc" r="4.5" fill="var(--series)" stroke="var(--surface)" stroke-width="2"/></g></svg>`;
+  const ro = $("#ro", host), svg = $("svg", host), cur = $("#cur", host);
+  const show = i => { const p = pts[i];
+    ro.innerHTML = `<b>${label(p, basis)}</b> 종가 <b>${num(p.c, 2)}</b>${p.pct == null ? "" : ` <span class="${cls(p.pct)}">${pct(p.pct)}</span>`} · 고 ${num(p.h, 2)} · 저 ${num(p.l, 2)}`;
+    cur.removeAttribute("hidden"); $("#cl", host).setAttribute("x1", x(i)); $("#cl", host).setAttribute("x2", x(i)); $("#cc", host).setAttribute("cx", x(i)); $("#cc", host).setAttribute("cy", y(p.c)); };
+  const move = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W;
+    show(Math.max(0, Math.min(pts.length - 1, Math.round((px - m.l) / iw * (pts.length - 1))))); };
+  svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move);
+  show(pts.length - 1);
+}
+function barChart(host, pts, basis) {
+  const b = pts.filter(p => p.pct != null); if (!b.length) { host.innerHTML = ""; return; }
+  const W = Math.max(300, host.clientWidth), H = 190, m = { l: 6, r: 44, t: 8, b: 22 }, iw = W - m.l - m.r, ih = H - m.t - m.b;
+  let lo = Math.min(0, ...b.map(p => p.pct)), hi = Math.max(0, ...b.map(p => p.pct)); const pad = (hi - lo) * 0.08 || 1; if (lo < 0) lo -= pad; if (hi > 0) hi += pad;
+  const y = v => m.t + (1 - (v - lo) / (hi - lo)) * ih, slot = iw / b.length, bw = Math.max(1, Math.min(22, slot - 2));
+  const grid = niceTicks(lo, hi, 4).map(v => `<line x1="${m.l}" x2="${m.l + iw}" y1="${y(v)}" y2="${y(v)}" stroke="var(--grid)"/><text x="${W - m.r + 6}" y="${y(v) + 4}">${num(v)}%</text>`).join("");
+  const bars = b.map((p, i) => { const x0 = m.l + i * slot + (slot - bw) / 2, y0 = Math.min(y(0), y(p.pct)), h = Math.max(1, Math.abs(y(p.pct) - y(0)));
+    return `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="${Math.min(3, bw / 2)}" fill="var(--${p.pct >= 0 ? "up" : "down"})"/>`; }).join("");
+  const nx = Math.min(b.length, W < 480 ? 4 : 6), xt = [];
+  for (let j = 0; j < nx; j++) { const i = Math.round(j * (b.length - 1) / Math.max(1, nx - 1)); xt.push(`<text x="${m.l + (i + 0.5) * slot}" y="${H - 5}" text-anchor="middle">${label(b[i], basis)}</text>`); }
+  host.innerHTML = `<div class="readout" id="ro2"></div><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="기간별 등락률 막대 차트">${grid}<line x1="${m.l}" x2="${m.l + iw}" y1="${y(0)}" y2="${y(0)}" stroke="var(--muted)"/>${bars}${xt.join("")}</svg>`;
+  const ro = $("#ro2", host), svg = $("svg", host);
+  const show = i => { ro.innerHTML = `<b>${label(b[i], basis)}</b> 등락률 <b class="${cls(b[i].pct)}">${pct(b[i].pct)}</b>`; };
+  const move = e => { const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * W; show(Math.max(0, Math.min(b.length - 1, Math.floor((px - m.l) / slot)))); };
+  svg.addEventListener("pointermove", move); svg.addEventListener("pointerdown", move); show(b.length - 1);
+}
+let redraw = null;
+function viewIndex(el) {
+  if (!IDX || !IDX.d.length) { el.innerHTML = `<p class="msg">코스피 지수 데이터가 아직 없습니다.</p>`; return; }
+  const basis = state.basis, all = periods(basis), firstY = Math.floor(IDX.d[0] / 10000), lastY = Math.floor(IDX.d[IDX.d.length - 1] / 10000);
+  const years = []; for (let y = lastY; y >= firstY; y--) years.push(y);
+  let pts, controls;
+  if (basis === "D") {
+    const ranges = { "1M": ["1개월", 1], "3M": ["3개월", 3], "1Y": ["1년", 12], "5Y": ["5년", 60], "ALL": ["전체", 0] };
+    if (!ranges[state.range]) state.range = "1Y";
+    const lastD = String(IDX.d[IDX.d.length - 1]), dt = new Date(+lastD.slice(0, 4), +lastD.slice(4, 6) - 1 - ranges[state.range][1], +lastD.slice(6));
+    const from = state.range === "ALL" ? 0 : dt.getFullYear() * 10000 + (dt.getMonth() + 1) * 100 + dt.getDate();
+    pts = all.filter(p => p.d >= from);
+    controls = `<div class="chips" role="group" aria-label="기간">${Object.keys(ranges).map(k => `<button data-r="${k}" aria-pressed="${k === state.range}">${ranges[k][0]}</button>`).join("")}</div>`;
+  } else {
+    const def = basis === "M" ? Math.max(firstY, lastY - 4) : firstY;
+    let y0 = +state.y0 || def, y1 = +state.y1 || lastY;
+    if (basis === "Y" && !state.yset) { y0 = firstY; y1 = lastY; }
+    y0 = Math.max(firstY, Math.min(y0, lastY)); y1 = Math.max(y0, Math.min(y1, lastY));
+    pts = all.filter(p => { const y = Math.floor(p.d / 10000); return y >= y0 && y <= y1; });
+    controls = `<div class="controls"><select id="y0" aria-label="시작 연도">${opts(years, y0, v => v + "년")}</select><span class="note">부터</span>
+      <select id="y1" aria-label="끝 연도">${opts(years, y1, v => v + "년")}</select><span class="note">까지</span></div>`;
+  }
+  if (!pts.length) { el.innerHTML = controls + `<p class="msg">선택한 기간에 데이터가 없습니다.</p>`; return; }
+  const base = pts[0].prev != null ? pts[0].prev : pts[0].o, lastP = pts[pts.length - 1];
+  const hiP = pts.reduce((a, p) => p.h > a.h ? p : a), loP = pts.reduce((a, p) => p.l < a.l ? p : a), total = (lastP.c / base - 1) * 100;
+  const unit = { D: "일", M: "월", Y: "연" }[basis], rows = pts.slice().reverse(), cut = 400;
+  el.innerHTML = `${controls}
+    <section class="card"><div class="stats">
+      <div class="stat"><div class="k">종가 (${dash(lastP.d)})</div><div class="v">${num(lastP.c, 2)}</div></div>
+      <div class="stat"><div class="k">기간 등락률</div><div class="v ${cls(total)}">${pct(total)}</div></div>
+      <div class="stat"><div class="k">기간 최고 (${label(hiP, basis)})</div><div class="v">${num(hiP.h, 2)}</div></div>
+      <div class="stat"><div class="k">기간 최저 (${label(loP, basis)})</div><div class="v">${num(loP.l, 2)}</div></div></div></section>
+    <section class="card"><h2>코스피 지수 (종가)</h2><p class="sub">차트를 누르거나 밀면 그 시점의 값을 볼 수 있습니다.</p><div class="chart" id="line"></div></section>
+    ${basis === "D" ? "" : `<section class="card"><h2>${unit}간 등락률</h2><p class="sub">직전 ${unit} 종가 대비입니다. 빨강은 상승, 파랑은 하락입니다.</p><div class="chart" id="bars"></div></section>`}
+    <section class="card"><h2>${unit}별 시세</h2><p class="sub">${rows.length > cut ? `최근 ${cut}개만 표시합니다.` : `${num(rows.length)}개`}</p><div class="scroll"><table><thead><tr><th>${{ D: "날짜", M: "월", Y: "연도" }[basis]}</th><th>종가</th><th>등락률</th><th>시가</th><th>고가</th><th>저가</th></tr></thead><tbody>
+      ${rows.slice(0, cut).map(p => `<tr><td>${label(p, basis)}</td><td>${num(p.c, 2)}</td><td class="${cls(p.pct)}">${p.pct == null ? "" : pct(p.pct)}</td><td>${num(p.o, 2)}</td><td>${num(p.h, 2)}</td><td>${num(p.l, 2)}</td></tr>`).join("")}</tbody></table></div></section>
+    <footer>코스피 지수 ${dash(IDX.d[0])} ~ ${dash(IDX.d[IDX.d.length - 1])} · 출처 네이버 금융·FinanceDataReader</footer>`;
+  redraw = () => { lineChart($("#line"), pts, basis); if (basis !== "D") barChart($("#bars"), pts, basis); };
+  redraw();
+  el.querySelectorAll("[data-r]").forEach(b => b.onclick = () => { state.range = b.dataset.r; render(); });
+  const y0 = $("#y0"), y1 = $("#y1");
+  if (y0) { y0.onchange = () => { state.y0 = +y0.value; state.y1 = Math.max(+y0.value, +y1.value); state.yset = true; render(); };
+            y1.onchange = () => { state.y1 = +y1.value; state.y0 = Math.min(+y0.value, +y1.value); state.yset = true; render(); }; }
+}
+
+/* ---------- 화면 ---------- */
+let token = 0;
+async function render() {
+  save(); redraw = null;
+  for (const [id, key] of [["#seg-page", "page"], ["#seg-basis", "basis"]]) document.querySelectorAll(id + " button").forEach(b => b.setAttribute("aria-pressed", b.dataset.v === state[key]));
+  const el = $("#view"), mine = ++token, box = document.createElement("div");
+  try { // 시가총액 화면은 파일을 기다리는 동안 화면이 비지 않게 떼어낸 상자에 그린 뒤 옮긴다
+    if (state.page === "top") { await viewTop(box); if (mine !== token) return; el.replaceChildren(...box.childNodes); }
+    else viewIndex(el);
+  } catch (e) { if (mine === token) el.innerHTML = `<p class="msg">데이터를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 열어 주세요.</p>`; console.error(e); }
+}
+document.querySelectorAll("#seg-page button").forEach(b => b.onclick = () => { state.page = b.dataset.v; render(); });
+document.querySelectorAll("#seg-basis button").forEach(b => b.onclick = () => { state.basis = b.dataset.v; state.yset = false; state.y0 = state.y1 = null; render(); });
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => redraw && redraw(), 150); });
+(async () => {
+  try { [META, IDX] = await Promise.all([load("meta.json"), load("index.json")]); render(); }
+  catch (e) { $("#view").innerHTML = `<p class="msg">데이터를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 열어 주세요.</p>`; }
+})();
+</script>
+</body>
+</html>
