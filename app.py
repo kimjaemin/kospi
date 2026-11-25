@@ -10,6 +10,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from kospi import analysis as kana
+from kospi import earnings as kearn
 from kospi import fundamentals as kfund
 from kospi import index as kidx
 from kospi import marcap as mc
@@ -62,6 +64,40 @@ def get_fund() -> tuple[pd.DataFrame, str | None]:
         return df, f"종목 지표를 새로 받지 못했습니다. ({type(e).__name__})"
 
 
+@st.cache_data(ttl=24 * 3600, show_spinner="실적·전망치를 확인하는 중…")
+def get_analysis() -> tuple[dict, str | None]:
+    """종목별 분석 문장과 실적 기준일. 종목 지표를 먼저 최신으로 맞춘 뒤 만든다."""
+    fund, _ = get_fund()
+    earn = kearn.load_earnings()
+    if not earn.get("date") or pd.Timestamp(earn["date"]) < last_weekday(dt.datetime.now()):
+        try:
+            earn = kearn.update_earnings()[0]
+        except Exception:
+            pass  # 새로 받지 못하면 저장된 것으로 만든다
+    return kana.build_all(fund, earn), earn.get("date")
+
+
+VERDICT_ICON = {"저평가 구간": "🔵", "고평가 구간": "🔴", "중립": "⚪", "판단 보류": "➖"}
+
+
+def analysis_section(d: pd.DataFrame) -> None:
+    """표에 나온 종목별로 실적 대 전망치, 가이던스, 펀더멘털 판단을 펼쳐 보여준다."""
+    notes, asof = get_analysis()
+    rows = [(r.Rank, r.Name, notes[r.Code]) for r in d.itertuples() if r.Code in notes]
+    if not rows:
+        return
+    st.subheader("종목별 분석")
+    st.caption(f"{asof} 기준 최신 자료로 자동 작성했습니다. 출처: 네이버 금융·WiseReport(실적, 증권사 전망치, 목표주가)와 거래소 공시. "
+               + kana.DISCLAIMER)
+    for rank, name, n in rows:
+        with st.expander(f"{rank}. {name} · {VERDICT_ICON.get(n['verdict'], '')} {n['verdict']}"):
+            st.markdown(f"**분기 실적과 시장 전망치** · {n['results']}")
+            st.markdown(f"**가이던스와 전망** · {n['guidance']}")
+            st.markdown(f"**펀더멘털** · {n['fundamental']}")
+            st.markdown(f"**판단: {n['verdict']}** · " + ("근거: " + "; ".join(n["signals"]) if n["signals"] else "뚜렷한 신호가 없습니다."))
+    st.caption(kana.CRITERIA)
+
+
 # ---------- 시가총액 상위 종목 ----------
 def fund_table(codes: pd.Series) -> tuple[pd.DataFrame, str | None]:
     """종목코드 순서대로 사업분야·PER·PBR·EPS와 업종 평균을 붙인 표와 지표 기준일."""
@@ -112,6 +148,10 @@ def detail(top: pd.DataFrame, day: pd.Timestamp, title: str) -> None:
         st.caption("사업분야와 PER·PBR·EPS 데이터를 아직 받지 못했습니다. '데이터 새로 받기'를 눌러 주세요.")
     st.download_button("CSV 내려받기", table.to_csv(index=False).encode("utf-8-sig"),
                        f"kospi_top{n}_{day:%Y%m%d}.csv", "text/csv")
+    if fund_day and abs((pd.Timestamp(fund_day) - day).days) <= 7:  # 분석은 최신 자료 기준이라 최근 날짜에서만 보여준다
+        analysis_section(d)
+    else:
+        st.caption("종목별 분석(실적·전망·고평가 판단)은 최신 자료 기준이라 최근 거래일 화면에서만 표시합니다.")
     fig = go.Figure(go.Bar(
         x=d["조원"], y=d["Name"], orientation="h", marker_color=LINE,
         text=d["조원"].map("{:,.1f}".format), textposition="outside", cliponaxis=False,
@@ -276,7 +316,7 @@ with st.sidebar:
     if st.button("데이터 새로 받기"):
         st.cache_data.clear()
         for name, fn, unit in [("시가총액", mc.update_top, "거래일 추가"), ("코스피 지수", kidx.update_index, "거래일 추가"),
-                             ("종목 지표", kfund.update_fundamentals, "종목")]:
+                             ("종목 지표", kfund.update_fundamentals, "종목"), ("실적·전망치", kearn.update_earnings, "종목")]:
             try:
                 with st.spinner(f"{name} 받는 중…"):
                     st.success(f"{name}: {fn()[1]}{unit}")

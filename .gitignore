@@ -4,3 +4,5 @@ __pycache__/
 gui.log
 shots/
 .DS_Store
+data/kospi_earnings.json
+data/kospi_consensus_log.csv
