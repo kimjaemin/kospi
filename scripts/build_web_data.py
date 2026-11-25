@@ -9,10 +9,12 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from kospi import fundamentals as kfund  # noqa: E402
 from kospi import index as kidx  # noqa: E402
 from kospi import marcap as mc  # noqa: E402
 
 OUT = ROOT / "docs" / "data"
+TOP = 20
 
 
 def dump(path: Path, obj) -> None:
@@ -27,13 +29,31 @@ def pack(df: pd.DataFrame) -> dict:
     for day, g in df.groupby("Date"):
         g = g.sort_values("Marcap", ascending=False)
         common = (~mc.is_preferred(g["Code"])).cumsum()
-        g = g[(common <= 10) | (g["Rank"] <= 10)]  # 우선주를 빼도 10개가 남을 만큼만
+        g = g[(common <= TOP) | (g["Rank"] <= TOP)]  # 우선주를 빼도 TOP개가 남을 만큼만
         row: list = []
         for r in g.itertuples():
             i = stocks.setdefault((r.Code, r.Name), len(stocks))
             row += [i, round(r.Marcap / 1e8), int(r.Close), round(float(r.ChangesRatio), 2)]
         days[f"{day:%Y%m%d}"] = row
     return {"stocks": [list(k) for k in stocks], "days": days}
+
+
+def r2(v, nd=2):
+    return None if pd.isna(v) else round(float(v), nd)
+
+
+def pack_fund(fund: pd.DataFrame) -> dict:
+    """{date, sectors:[[업종,종목수,PER,PBR,EPS]], stocks:{코드:[업종번호,PER,PBR,EPS,주요제품]}}"""
+    if fund.empty:
+        return {"date": None, "sectors": [], "stocks": {}}
+    avg = kfund.sector_averages(fund)
+    pos = {s: i for i, s in enumerate(avg["Sector"])}
+    return {
+        "date": str(fund["Date"].iloc[0])[:10],
+        "sectors": [[r.Sector, int(r.Count), r2(r.PER), r2(r.PBR), r2(r.EPS, 0)] for r in avg.itertuples()],
+        "stocks": {r.Code: [pos.get(r.Sector, -1), r2(r.PER), r2(r.PBR), r2(r.EPS, 0), r.Products or ""]
+                   for r in fund.itertuples()},
+    }
 
 
 def main() -> None:
@@ -53,7 +73,10 @@ def main() -> None:
         "d": [int(f"{d:%Y%m%d}") for d in idx["Date"]],
         **{k: [round(float(v), 2) for v in idx[c]] for k, c in zip("ohlc", ["Open", "High", "Low", "Close"])},
     })
+    fund = pack_fund(kfund.load_fundamentals())
+    dump(OUT / "fund.json", fund)
     dump(OUT / "meta.json", {
+        "fundDate": fund["date"],
         "topFirst": f"{dates.min():%Y%m%d}", "topLast": f"{dates.max():%Y%m%d}",
         "indexLast": f"{idx['Date'].max():%Y%m%d}" if len(idx) else None,
         "built": pd.Timestamp.now(tz="Asia/Seoul").strftime("%Y-%m-%d %H:%M"),

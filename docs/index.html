@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>코스피 분석기</title>
-<meta name="description" content="코스피 시가총액 상위 10 종목과 코스피 지수를 일별·월별·연도별로 봅니다.">
+<meta name="description" content="코스피 시가총액 상위 종목과 코스피 지수를 일별·월별·연도별로 봅니다.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
@@ -70,6 +70,13 @@ h2 { font-size: 16px; margin: 0; text-wrap: balance; }
 .rank .n { color: var(--muted); font-weight: 700; text-align: right; }
 .rank .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank .code { color: var(--muted); font-size: 12px; font-weight: 400; margin-left: 4px; }
+.rank .sec { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank details { grid-column: 2 / -1; margin-top: 6px; }
+.rank summary { color: var(--accent); font-size: 12.5px; cursor: pointer; padding: 2px 0; }
+.rank details .scroll { margin: 6px 0 0; padding: 0; }
+.rank details th:first-child, .rank details td:first-child { left: 0; }
+.prod { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+.prod b { color: var(--fg); font-weight: 600; margin-right: 4px; }
 .rank .bar { height: 5px; border-radius: 3px; background: var(--series); margin-top: 5px; min-width: 2px; }
 .rank .r { text-align: right; }
 .rank .cap { font-weight: 700; }
@@ -98,7 +105,7 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-top: 
 <header><div class="wrap">
   <h1>코스피 분석기</h1>
   <div class="seg" id="seg-page" role="group" aria-label="보기">
-    <button data-v="top">시가총액 상위 10</button><button data-v="index">코스피 지수</button>
+    <button data-v="top">시가총액 상위</button><button data-v="index">코스피 지수</button>
   </div>
   <div class="seg" id="seg-basis" role="group" aria-label="기준">
     <button data-v="D">일별</button><button data-v="M">월별</button><button data-v="Y">연도별</button>
@@ -115,13 +122,13 @@ const cls = v => (v > 0 ? "up" : v < 0 ? "down" : "");
 const dash = k => { k = String(k); return k.slice(0, 4) + "-" + k.slice(4, 6) + "-" + k.slice(6, 8); };
 const jo = eok => eok / 1e4; // 억원 → 조원
 
-const state = { page: "top", basis: "D", pref: false, day: null, year: null, month: null, range: "1Y", y0: null, y1: null };
+const state = { page: "top", basis: "D", pref: false, n: 20, day: null, year: null, month: null, range: "1Y", y0: null, y1: null };
 try { Object.assign(state, JSON.parse(localStorage.getItem("kospi-state") || "{}"), { day: null }); } catch (e) {}
 const save = () => { try { localStorage.setItem("kospi-state", JSON.stringify(state)); } catch (e) {} };
 
 const cache = {};
 const load = path => cache[path] || (cache[path] = fetch("data/" + path).then(r => { if (!r.ok) throw new Error(path); return r.json(); }));
-let META, IDX;
+let META, IDX, FUND = { date: null, sectors: [], stocks: {} };
 
 /* ---------- 시가총액 ---------- */
 function rowsOf(file, key, exclPref) {
@@ -131,30 +138,47 @@ function rowsOf(file, key, exclPref) {
     const [code, name] = file.stocks[a[i]];
     if (exclPref && code.slice(-1) !== "0") continue; // 종목코드 끝자리가 0이 아니면 우선주
     out.push({ code, name, cap: a[i + 1], close: a[i + 2], chg: a[i + 3] });
-    if (out.length === 10) break;
+    if (out.length === state.n) break;
   }
   return out;
 }
+const val = (v, d = 2) => v == null ? "–" : num(v, d);
+function fundOf(code) { // 종목 지표와 업종 평균
+  const f = FUND.stocks[code]; if (!f) return null;
+  const s = FUND.sectors[f[0]] || [null, 0, null, null, null];
+  return { sector: s[0], count: s[1], sPer: s[2], sPbr: s[3], sEps: s[4], per: f[1], pbr: f[2], eps: f[3], products: f[4] };
+}
 function rankCard(title, key, rows) {
   const max = rows.length ? rows[0].cap : 1, sum = rows.reduce((s, r) => s + r.cap, 0);
+  const stale = FUND.date && Math.abs(new Date(FUND.date) - new Date(dash(key))) > 7 * 864e5;
+  const item = (r, i) => { const f = fundOf(r.code);
+    return `<li><span class="n">${i + 1}</span>
+      <div><div class="name">${esc(r.name)}<span class="code">${r.code}</span></div>
+        ${f ? `<div class="sec">${esc(f.sector || "업종 정보 없음")} · PER ${val(f.per)} · PBR ${val(f.pbr)}</div>` : ""}
+        <div class="bar" style="width:${(r.cap / max * 100).toFixed(1)}%"></div></div>
+      <div class="r"><div class="cap">${num(jo(r.cap), 1)}조</div><div class="px">${num(r.close)}원 <span class="${cls(r.chg)}">${pct(r.chg)}</span></div></div>
+      ${f ? `<details><summary>지표와 업종 평균</summary>
+        <div class="scroll"><table><thead><tr><th></th><th>PER</th><th>PBR</th><th>EPS(원)</th></tr></thead><tbody>
+          <tr><td>${esc(r.name)}</td><td>${val(f.per)}</td><td>${val(f.pbr)}</td><td>${val(f.eps, 0)}</td></tr>
+          <tr><td>업종 평균 (${f.count}종목)</td><td>${val(f.sPer)}</td><td>${val(f.sPbr)}</td><td>${val(f.sEps, 0)}</td></tr></tbody></table></div>
+        ${f.products ? `<p class="prod"><b>주요 제품·사업</b> ${esc(f.products)}</p>` : ""}</details>` : ""}</li>`; };
   return `<section class="card"><h2>${esc(title)}</h2>
-    <p class="sub">기준일 ${dash(key)} 종가 · 상위 10개 합계 ${num(jo(sum), 1)}조원</p>
-    <ol class="rank">${rows.map((r, i) => `<li><span class="n">${i + 1}</span>
-      <div><div class="name">${esc(r.name)}<span class="code">${r.code}</span></div><div class="bar" style="width:${(r.cap / max * 100).toFixed(1)}%"></div></div>
-      <div class="r"><div class="cap">${num(jo(r.cap), 1)}조</div><div class="px">${num(r.close)}원 <span class="${cls(r.chg)}">${pct(r.chg)}</span></div></div></li>`).join("")}</ol></section>`;
+    <p class="sub">기준일 ${dash(key)} 종가 · 상위 ${rows.length}개 합계 ${num(jo(sum), 1)}조원</p>
+    <ol class="rank">${rows.map(item).join("")}</ol>
+    ${FUND.date ? `<p class="note">${stale ? `<b>업종과 PER·PBR·EPS는 ${dash(key)} 당시 값이 아니라 ${FUND.date} 기준 최신 값입니다.</b> ` : `업종과 PER·PBR·EPS는 ${FUND.date} 기준입니다. `}업종은 네이버 금융 분류이고, 업종 평균은 같은 업종의 코스피 보통주로 계산합니다(PER = 시가총액 합 ÷ 순이익 합, PBR = 시가총액 합 ÷ 순자산 합, EPS = 단순평균). 적자이면 PER은 비어 있습니다.</p>` : ""}</section>`;
 }
 function matrixCard(title, note, cols) { // cols: [{label, rows}]
   let h = `<section class="card"><h2>${esc(title)}</h2><p class="sub">${esc(note)}</p><div class="scroll"><table class="matrix"><thead><tr><th>순위</th>${cols.map(c => `<th>${esc(c.label)}</th>`).join("")}</tr></thead><tbody>`;
-  for (let i = 0; i < 10; i++) h += `<tr><td>${i + 1}</td>${cols.map(c => `<td>${c.rows[i] ? esc(c.rows[i].name) : ""}</td>`).join("")}</tr>`;
+  for (let i = 0; i < state.n; i++) h += `<tr><td>${i + 1}</td>${cols.map(c => `<td>${c.rows[i] ? esc(c.rows[i].name) : ""}</td>`).join("")}</tr>`;
   return h + "</tbody></table></div></section>";
 }
-const prefCheck = () => `<label class="check"><input type="checkbox" id="pref" ${state.pref ? "checked" : ""}> 우선주 제외</label>`;
-const bindPref = el => { $("#pref", el).onchange = e => { state.pref = e.target.checked; render(); }; };
+const prefCheck = () => `<select id="topn" aria-label="순위 범위">${opts([10, 20], state.n, v => "상위 " + v)}</select><label class="check"><input type="checkbox" id="pref" ${state.pref ? "checked" : ""}> 우선주 제외</label>`;
+const bindPref = el => { $("#pref", el).onchange = e => { state.pref = e.target.checked; render(); }; $("#topn", el).onchange = e => { state.n = +e.target.value; render(); }; };
 const opts = (list, sel, fmt = v => v) => list.map(v => `<option value="${v}" ${String(v) === String(sel) ? "selected" : ""}>${fmt(v)}</option>`).join("");
 
 async function viewTop(el) {
   const first = META.topFirst, last = META.topLast;
-  const foot = `<footer>시가총액 ${dash(first)} ~ ${dash(last)} · 출처 한국거래소 전종목 시세(marcap 데이터셋)</footer>`;
+  const foot = `<footer>시가총액 ${dash(first)} ~ ${dash(last)} · 출처 한국거래소 전종목 시세(marcap 데이터셋) · 지표 네이버 금융, 주요 제품 KIND</footer>`;
   if (state.basis === "D") {
     let want = state.day || last; if (want > last) want = last; if (want < first) want = first;
     const year = async y => (y >= +first.slice(0, 4) && y <= +last.slice(0, 4)) ? load(`top/${y}.json`) : null;
@@ -170,7 +194,7 @@ async function viewTop(el) {
       <input type="date" id="day" aria-label="날짜" value="${dash(key)}" min="${dash(first)}" max="${dash(last)}">
       <button class="btn" id="next" aria-label="다음 거래일" ${key === last ? "disabled" : ""}>▶</button>${prefCheck()}</div>
       ${key !== want ? `<p class="note">${dash(want)}은 휴장일이라 직전 거래일 기준으로 보여줍니다.</p>` : ""}
-      ${rankCard(`${+key.slice(0, 4)}년 ${+key.slice(4, 6)}월 ${+key.slice(6)}일 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}${foot}`;
+      ${rankCard(`${+key.slice(0, 4)}년 ${+key.slice(4, 6)}월 ${+key.slice(6)}일 시가총액 상위 ${state.n}`, key, rowsOf(file, key, state.pref))}${foot}`;
     $("#day", el).onchange = e => { if (e.target.value) { state.day = e.target.value.replace(/-/g, ""); render(); } };
     $("#prev", el).onclick = () => step(-1); $("#next", el).onclick = () => step(1);
   } else {
@@ -184,14 +208,14 @@ async function viewTop(el) {
       const key = inYear[months.indexOf(+state.month)];
       el.innerHTML = `<div class="controls"><select id="year" aria-label="연도">${opts(years, state.year, v => v + "년")}</select>
         <select id="month" aria-label="월">${opts(months, state.month, v => v + "월")}</select>${prefCheck()}</div>
-        ${rankCard(`${state.year}년 ${state.month}월 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}
+        ${rankCard(`${state.year}년 ${state.month}월 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 ${state.n}`, key, rowsOf(file, key, state.pref))}
         ${matrixCard(`${state.year}년 월별 순위 변화`, "각 월의 마지막 거래일 기준입니다.", inYear.map(k => ({ label: +k.slice(4, 6) + "월", rows: rowsOf(file, k, state.pref) })))}${foot}`;
       $("#month", el).onchange = e => { state.month = +e.target.value; render(); };
     } else {
       const ends = years.map(y => keys.filter(k => +k.slice(0, 4) === y).pop());
       const key = inYear[inYear.length - 1];
       el.innerHTML = `<div class="controls"><select id="year" aria-label="연도">${opts(years, state.year, v => v + "년")}</select>${prefCheck()}</div>
-        ${rankCard(`${state.year}년 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 10`, key, rowsOf(file, key, state.pref))}
+        ${rankCard(`${state.year}년 ${key === last ? "(최근 거래일)" : "말"} 시가총액 상위 ${state.n}`, key, rowsOf(file, key, state.pref))}
         ${matrixCard("연도별 순위 변화", `각 연도의 마지막 거래일 기준입니다. ${last.slice(0, 4)}년은 ${dash(last)} 기준입니다. 옆으로 밀어 과거를 볼 수 있습니다.`, ends.map(k => ({ label: k.slice(0, 4), rows: rowsOf(file, k, state.pref) })))}${foot}`;
     }
     $("#year", el).onchange = e => { state.year = +e.target.value; state.month = null; render(); };
@@ -318,7 +342,10 @@ document.querySelectorAll("#seg-page button").forEach(b => b.onclick = () => { s
 document.querySelectorAll("#seg-basis button").forEach(b => b.onclick = () => { state.basis = b.dataset.v; state.yset = false; state.y0 = state.y1 = null; render(); });
 let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => redraw && redraw(), 150); });
 (async () => {
-  try { [META, IDX] = await Promise.all([load("meta.json"), load("index.json")]); render(); }
+  try { [META, IDX] = await Promise.all([load("meta.json"), load("index.json")]);
+    try { FUND = await load("fund.json"); } catch (e) {} // 지표가 없어도 순위는 보여준다
+    if (state.n !== 10) state.n = 20;
+    render(); }
   catch (e) { $("#view").innerHTML = `<p class="msg">데이터를 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 다시 열어 주세요.</p>`; }
 })();
 </script>
