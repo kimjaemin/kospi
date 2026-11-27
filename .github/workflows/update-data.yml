@@ -26,7 +26,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install pandas pyarrow requests finance-datareader
+      - run: pip install pandas pyarrow requests finance-datareader lxml
       - name: 데이터 받기와 웹앱 데이터 만들기
         id: update
         run: python scripts/update_all.py

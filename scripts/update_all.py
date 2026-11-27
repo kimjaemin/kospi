@@ -7,15 +7,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+from kospi import fundamentals as kfund  # noqa: E402
 from kospi import index as kidx  # noqa: E402
 from kospi import marcap as mc  # noqa: E402
 from scripts import build_web_data  # noqa: E402
 
 failed = []
-for name, fn in [("시가총액", mc.update_top), ("코스피 지수", kidx.update_index)]:
+for name, fn in [("시가총액", mc.update_top), ("코스피 지수", kidx.update_index), ("종목 지표", kfund.update_fundamentals)]:
     try:
         df, added = fn()
-        print(f"{name}: {added}거래일 추가, 최근 {df['Date'].max():%Y-%m-%d}")
+        print(f"{name}: {added}건 추가, 최근 {str(df['Date'].max())[:10]}")
     except Exception:
         traceback.print_exc()
         failed.append(name)
