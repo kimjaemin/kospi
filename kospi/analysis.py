@@ -51,6 +51,11 @@ def change(new, old) -> str | None:
     return f"{(new / old - 1) * 100:+.1f}%"
 
 
+def pct0(x: float, digits: int = 0) -> str:
+    """부호 붙인 백분율. 반올림하면 0인 음수가 '-0%'로 찍히지 않게 한다."""
+    return f"{round(x, digits + 2) + 0.0:+.{digits}%}"
+
+
 def beat_word(pct: float) -> str:
     if pct >= 10:
         return "크게 웃돌았습니다(어닝 서프라이즈)"
@@ -79,11 +84,16 @@ def results_text(e: dict) -> str:
         head = f"{quarter_label(s['period'])} 영업이익은 {money(s['op_actual'])}으로 시장 전망치({money(s['op_consensus'])})"
         if s["op_consensus"] > 0 and s["op_actual"] > 0:
             pct = (s["op_actual"] / s["op_consensus"] - 1) * 100
-            parts.append(f"{head}를 {abs(pct):.1f}% {beat_word(pct)}." if abs(pct) >= 3 else f"{head}에 {beat_word(pct)}({pct:+.1f}%).")
+            parts.append(f"{head}를 {abs(pct):.1f}% {beat_word(pct)}." if abs(pct) >= 3 else f"{head}에 {beat_word(pct)}({pct0(pct / 100, 1)}).")
         else:
-            parts.append(f"{head}와 비교해 {change(s['op_actual'], s['op_consensus']) or '차이가 큽니다'}.")
+            if s["op_actual"] > 0:  # 적자가 끼면 비율 대신 흑자·적자 여부를 말한다
+                parts.append(f"{head}의 적자 예상과 달리 흑자를 냈습니다.")
+            elif s["op_consensus"] > 0:
+                parts.append(f"{head}와 달리 적자를 냈습니다.")
+            else:
+                parts.append(f"{head}보다 적자 폭이 {'작았습니다' if s['op_actual'] > s['op_consensus'] else '컸습니다'}.")
         if ok(s.get("revenue_actual")) and ok(s.get("revenue_consensus")) and s["revenue_consensus"] > 0:
-            parts.append(f"매출은 {money(s['revenue_actual'])}으로 전망치 대비 {(s['revenue_actual'] / s['revenue_consensus'] - 1) * 100:+.1f}%입니다.")
+            parts.append(f"매출은 {money(s['revenue_actual'])}으로 전망치 대비 {pct0(s['revenue_actual'] / s['revenue_consensus'] - 1, 1)}입니다.")
         if s.get("preliminary"):
             parts.append("잠정 실적 기준입니다.")
     elif qs:
@@ -146,7 +156,7 @@ def fundamental(f: dict, sec: dict, e: dict) -> tuple[str, str, list[str]]:
         v, s = f.get(key), sec.get(key)
         if ok(v) and ok(s) and s > 0 and v > 0:
             gap = v / s - 1
-            parts.append(f"{name} {v:,.2f}배(업종 평균 {s:,.2f}배, {gap:+.0%})")
+            parts.append(f"{name} {v:,.2f}배(업종 평균 {s:,.2f}배, {pct0(gap)})")
             used += 1
             if gap <= -GAP:
                 score -= 1
@@ -165,7 +175,7 @@ def fundamental(f: dict, sec: dict, e: dict) -> tuple[str, str, list[str]]:
     if ok(tp) and ok(close) and close > 0:
         up = tp / close - 1
         n = e.get("analysts")
-        text += f" 증권사 평균 목표주가는 {tp:,.0f}원으로 현재가({close:,.0f}원) 대비 {up:+.0%}입니다" + (f"({int(n)}곳)." if ok(n) else ".")
+        text += f" 증권사 평균 목표주가는 {tp:,.0f}원으로 현재가({close:,.0f}원) 대비 {pct0(up)}입니다" + (f"({int(n)}곳)." if ok(n) else ".")
         used += 1
         if up >= GAP:
             score -= 1
